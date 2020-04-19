@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 const fs = require('fs');
 const chalk = require('chalk');
 const path = require('path')
@@ -5,8 +7,7 @@ const {zip} = require('zip-a-folder');
 const prettyBytes = require('pretty-bytes');
 const {ncp} = require('ncp');
 const {hashElement} = require('folder-hash');
-const {packageJsonPath} = require("./awsConfig");
-const {AWS} = require('./awsConfig')
+const {AWS, packageJsonPath} = require("./awsConfig");
 const {getProcessArgObject} = require('./util')
 
 const lambda = new AWS.Lambda();
@@ -15,9 +16,7 @@ const getExistingFunction = async FunctionName => {
     try {
         return await lambda.getFunction({FunctionName}).promise();
     } catch (e) {
-        console.error(666666);
         if (e.code === 'ResourceNotFoundException') return false
-        console.log(77777);
         throw e
     }
 }
@@ -82,7 +81,7 @@ const clean = zipSourcePath => {
     if (fs.existsSync(zipSourcePath)) fs.rmdirSync(zipSourcePath, {recursive: true})
 };
 
-const publishFunction = async (functionPath, extraConfig = {}) => {
+const deployFunction = async (functionPath, extraConfig = {}) => {
     const packageRootPath = path.resolve(packageJsonPath, '..')
     const buildPath = path.resolve(packageRootPath, 'build')
     const config = {
@@ -115,7 +114,7 @@ const publishFunction = async (functionPath, extraConfig = {}) => {
 
 if (require.main === module) {
     const pathArg = process.argv.slice(2).find(arg => !arg.startsWith('-'));
-    publishFunction(path.resolve(pathArg), getProcessArgObject()).then(console.log, console.error)
+    deployFunction(path.resolve(pathArg), getProcessArgObject()).then(console.log, console.error)
 } else {
-    module.exports = publishFunction
+    module.exports = deployFunction
 }

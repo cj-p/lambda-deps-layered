@@ -1,5 +1,5 @@
 module.exports = {
-    publishAllFunctionsWithLayer: require('./publishAllFunctionsWithLayer'),
-    publishFunction: require('./publishFunction'),
-    publishLayer: require('./publishLayer'),
+    deployAllFunctionsWithLayer: require('./deployAllFunctionsWithLayer'),
+    deployFunction: require('./deployFunction'),
+    deployLayer: require('./deployLayer'),
 }

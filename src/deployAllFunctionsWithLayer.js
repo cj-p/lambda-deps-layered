@@ -1,10 +1,12 @@
+#!/usr/bin/env node
+
 const chalk = require('chalk');
 const path = require('path');
 const fs = require('fs');
-const publishLayer = require('./publishLayer');
-const publishFunction = require('./publishFunction');
+const deployLayer = require('./deployLayer');
+const deployFunction = require('./deployFunction');
 
-let publishAllFunctionsWithLayer = async targetPath => {
+let deployAllFunctionsWithLayer = async targetPath => {
     const functionRootPath = path.resolve(targetPath);
     const readdirSync = fs.readdirSync(functionRootPath, {withFileTypes: true});
     const functionPaths = readdirSync
@@ -12,15 +14,15 @@ let publishAllFunctionsWithLayer = async targetPath => {
         .map(entry => path.resolve(functionRootPath, entry.name))
         .filter(functionPath => fs.existsSync(path.resolve(functionPath, 'lambda.json')))
 
-    console.log(chalk.green.underline('\nPublishing Layer'));
+    console.log(chalk.green.underline('\nDeploying Layer'));
 
-    const {LayerVersionArn} = await publishLayer();
+    const {LayerVersionArn} = await deployLayer();
 
-    console.log(chalk.green.underline('\nPublishing Functions'));
+    console.log(chalk.green.underline('\nDeploying Functions'));
 
     for (const functionPath of functionPaths) {
         try {
-            await publishFunction(functionPath, {
+            await deployFunction(functionPath, {
                 Layers: [LayerVersionArn]
             })
         } catch (e) {
@@ -31,7 +33,7 @@ let publishAllFunctionsWithLayer = async targetPath => {
 
 if (require.main === module) {
     const pathArg = process.argv.slice(2).find(arg => !arg.startsWith('-'));
-    publishAllFunctionsWithLayer(pathArg).then(console.log, console.error)
+    deployAllFunctionsWithLayer(pathArg)
 } else {
-    module.exports = publishAllFunctionsWithLayer
+    module.exports = deployAllFunctionsWithLayer
 }

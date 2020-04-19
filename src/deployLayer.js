@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 const chalk = require('chalk')
 const md5File = require('md5-file')
 const fs = require('fs');
@@ -5,7 +7,7 @@ const path = require('path');
 const {zip} = require('zip-a-folder');
 const prettyBytes = require('pretty-bytes');
 const writeJson = require('write-json');
-const {promisify} = require('src/util');
+const {promisify} = require('util');
 const execFile = promisify(require('child_process').execFile);
 const ncp = promisify(require('ncp').ncp);
 const {AWS, packageJson, packageJsonPath} = require("./awsConfig");
@@ -52,14 +54,14 @@ const zipLayer = async (src, dest) => {
     return fs.readFileSync(dest);
 };
 
-const publishLayer = async ({
+const deployLayer = async ({
     layerName: LayerName,
     description: Description,
     license: LicenseInfo,
     zipFile: ZipFile,
     runtimes: CompatibleRuntimes = ["nodejs12.x"],
 }) => {
-    console.log(chalk.white.bold('\npublishing layer...'));
+    console.log(chalk.white.bold('\ndeploying layer...'));
     return await new AWS.Lambda().publishLayerVersion({
         Content: {ZipFile},
         LayerName,
@@ -93,7 +95,7 @@ const getZippedLayer = async (fileName, basePath) => {
     return zipFile;
 };
 
-const publishNodeModulesAsLayer = async ({name} = {}) => {
+const deployNodeModulesAsLayer = async ({name} = {}) => {
     const {
         name: packageName,
         license,
@@ -114,19 +116,19 @@ const publishNodeModulesAsLayer = async ({name} = {}) => {
 
     const sameVersion = await findSameVersion(layerName, hash);
     if (sameVersion) {
-        console.log(chalk.red('The same version is already published.'));
+        console.log(chalk.red('The same version is already deployed.'));
         return sameVersion
     }
 
     const zipFile = await getZippedLayer(`${layerName}.${hash}`, packageRootPath);
-    const publishedLayer = await publishLayer({layerName, license, description, zipFile});
+    const deployedLayer = await deployLayer({layerName, license, description, zipFile});
     console.log('done.');
-    return publishedLayer
+    return deployedLayer
 
 };
 
 if (require.main === module) {
-    publishNodeModulesAsLayer(getProcessArgObject()).then(console.log)
+    deployNodeModulesAsLayer(getProcessArgObject()).then(console.log)
 } else {
-    module.exports = publishNodeModulesAsLayer
+    module.exports = deployNodeModulesAsLayer
 }
