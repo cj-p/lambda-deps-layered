@@ -50,8 +50,7 @@ const createFunction = async (config, zipFile) => {
     }).promise()
 };
 
-const getDefaultConfig = functionPath => ({
-    FunctionName: functionPath.match(/[^\/]*$/)[0],
+const DEFAULT_CONFIG = {
     Handler: "index.handler",
     MemorySize: 256,
     Runtime: "nodejs12.x",
@@ -70,10 +69,10 @@ const getDefaultConfig = functionPath => ({
     // TracingConfig: {
     //     Mode: "Active"
     // }
-});
+};
 
 const copy = (source, destination, options = {}) => new Promise((resolve, reject) => {
-    if(!fs.existsSync(destination)) fs.mkdirSync(destination, {recursive: true})
+    if (!fs.existsSync(destination)) fs.mkdirSync(destination, {recursive: true})
     ncp(source, destination, options, err => err ? reject(err) : resolve());
 });
 
@@ -81,40 +80,49 @@ const clean = zipSourcePath => {
     if (fs.existsSync(zipSourcePath)) fs.rmdirSync(zipSourcePath, {recursive: true})
 };
 
-const deployFunction = async (functionPath, extraConfig = {}) => {
+const deployFunction = async (functionPath, functionName, role, extraConfig = {}) => {
     const packageRootPath = path.resolve(packageJsonPath, '..')
     const buildPath = path.resolve(packageRootPath, 'build')
     const config = {
-        ...getDefaultConfig(functionPath),
-        ...require(path.resolve(functionPath, 'lambda.json')),
-        ...extraConfig
+        FunctionName: functionName,
+        Role: role,
+        ...DEFAULT_CONFIG,
+        ...extraConfig,
     };
 
     console.log(chalk.yellow.bold(`\nƒ ${config.FunctionName}${
-        config.Description 
+        config.Description
             ? chalk.gray(` - ${config.Description}`)
             : ''
     }`));
 
     const zipSourcePath = path.resolve(buildPath, config.FunctionName);
     clean(zipSourcePath);
+
     console.log(chalk.white.bold(`\nbuilding function...`));
     await copy(functionPath, zipSourcePath, {filter: name => !name.endsWith('/lambda.json')});
     const {hash} = await hashElement(zipSourcePath, {algo: 'md5', encoding: 'hex'})
     const zipFile = await zipFunction(zipSourcePath, path.resolve(buildPath, `${config.FunctionName}.${hash}.zip`));
     clean(zipSourcePath);
     console.log('');
+
     const result = await getExistingFunction(config.FunctionName)
         ? await updateFunction(config, zipFile)
         : await createFunction(config, zipFile)
+
     console.log('done.');
     return result
 };
 
 
 if (require.main === module) {
+    const processArgObject = getProcessArgObject();
+    const {role: roleArn} = processArgObject;
     const pathArg = process.argv.slice(2).find(arg => !arg.startsWith('-'));
-    deployFunction(path.resolve(pathArg), getProcessArgObject()).then(console.log, console.error)
+    const functionPath = path.resolve(pathArg);
+    const functionName = functionPath.match(/[^\/]*$/)[0];
+
+    deployFunction(functionPath, functionName, roleArn, processArgObject).then(console.log, console.error)
 } else {
     module.exports = deployFunction
 }

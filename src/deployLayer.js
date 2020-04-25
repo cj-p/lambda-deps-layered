@@ -67,7 +67,7 @@ const deployLayer = async ({
         LayerName,
         CompatibleRuntimes,
         Description,
-        LicenseInfo
+        LicenseInfo,
     }).promise();
 };
 
@@ -116,7 +116,7 @@ const deployNodeModulesAsLayer = async ({name} = {}) => {
 
     const sameVersion = await findSameVersion(layerName, hash);
     if (sameVersion) {
-        console.log(chalk.red('The same version is already deployed.'));
+        console.log(chalk.white('The same version is already deployed.'));
         return sameVersion
     }
 
@@ -128,7 +128,7 @@ const deployNodeModulesAsLayer = async ({name} = {}) => {
 };
 
 if (require.main === module) {
-    deployNodeModulesAsLayer(getProcessArgObject()).then(console.log)
+    deployNodeModulesAsLayer(getProcessArgObject()).then(console.log, console.error)
 } else {
     module.exports = deployNodeModulesAsLayer
 }
