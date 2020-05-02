@@ -1,0 +1,11 @@
+{
+  "aws": {
+    "accessKeyId": {
+      "env": "ACCESS_KEY_ID"
+    },
+    "secretAccessKey": {
+      "env": "SECRET_ACCESS_KEY"
+    },
+    "region": "my-region-1"
+  }
+}
