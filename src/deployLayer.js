@@ -11,7 +11,6 @@ const {promisify} = require('util');
 const execFile = promisify(require('child_process').execFile);
 const ncp = promisify(require('ncp').ncp);
 const {AWS, packageJson, packageJsonPath} = require("./awsConfig");
-const {getProcessArgObject} = require("./util");
 
 const relativeDepsToAbsolute = dependencies =>
     Object.entries(dependencies)
@@ -95,7 +94,7 @@ const getZippedLayer = async (fileName, basePath) => {
     return zipFile;
 };
 
-const deployNodeModulesAsLayer = async ({name} = {}) => {
+const deployNodeModulesAsLayer = async () => {
     const {
         name: packageName,
         license,
@@ -128,7 +127,7 @@ const deployNodeModulesAsLayer = async ({name} = {}) => {
 };
 
 if (require.main === module) {
-    deployNodeModulesAsLayer(getProcessArgObject()).then(console.log, console.error)
+    deployNodeModulesAsLayer().then(console.log, console.error)
 } else {
     module.exports = deployNodeModulesAsLayer
 }

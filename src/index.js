@@ -1,6 +1,8 @@
 module.exports = {
-    deployAllFunctionsWithLayer: require('./deployAllFunctionsWithLayer'),
-    deployFunction: require('./deployFunction'),
+    AWS: require('./awsConfig').AWS,
+    config: require('./awsConfig').config,
+    deployRole: require('./deployRole'),
     deployLayer: require('./deployLayer'),
-    AWS: require('./awsConfig').AWS
+    deployFunction: require('./deployFunction'),
+    deployGateway: require('./deployGateway')
 }

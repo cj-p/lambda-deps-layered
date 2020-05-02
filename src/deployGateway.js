@@ -4,7 +4,7 @@ const chalk = require('chalk');
 const {diff} = require('fast-array-diff');
 const camelCase = require('camelcase');
 const {jsonEquals} = require("./util");
-const {AWS, config} = require("./awsConfig");
+const {AWS, config, packageJson} = require("./awsConfig");
 const iam = new AWS.IAM();
 const sts = new AWS.STS();
 
@@ -25,6 +25,25 @@ const getExistingPolicyStatement = async policyArn => {
     }
 }
 
+const createDefaultLambdaPolicy = ({region, accountId, functionNames = []}) => [
+    {
+        Effect: "Allow",
+        Action: "logs:CreateLogGroup",
+        Resource: `arn:aws:logs:${region}:${accountId}:*`
+    },
+    {
+        Effect: "Allow",
+        Action: [
+            "logs:CreateLogStream",
+            "logs:PutLogEvents"
+        ],
+        Resource: functionNames.map(functionName =>
+            `arn:aws:logs:${region}:${accountId}:log-group:/aws/lambda/${functionName}:*`
+        )
+    },
+];
+
+
 const pushNewPolicyVersion = async (policyArn, policyDocument) => {
     const {Versions: versions} = await iam.listPolicyVersions({PolicyArn: policyArn}).promise();
     const {length: versionCount, [versionCount - 1]: lastVersion} = versions.map(version => version.VersionId).sort();
@@ -43,89 +62,52 @@ const pushNewPolicyVersion = async (policyArn, policyDocument) => {
     }).promise();
 };
 
-function getBasicLogPolicyStatments(accountResource, functionResources) {
-    return [{
-        Effect: "Allow",
-        Action: "logs:CreateLogGroup",
-        Resource: `${accountResource}:*`
-    }, {
-        Effect: "Allow",
-        Action: [
-            "logs:CreateLogStream",
-            "logs:PutLogEvents"
-        ],
-        Resource: functionResources,
-    }];
-}
-
-const getFunctionArn = (accountResource, functionName) => `${accountResource}:log-group:/aws/lambda/${functionName}:*`;
-
 const createOrUpdatePolicy = async ({
     region,
     accountId,
     path,
     policyName,
-    functions = []
+    extraPolicyStatements = [],
+    functionNames = []
 }) => {
-    const accountResource = `arn:aws:logs:${region}:${accountId}`;
-    const policyDocumentObject = ({
+    const destinedArn = `arn:aws:iam::${accountId}:policy${path}${policyName}`;
+    const policyDocumentObject = {
         Version: "2012-10-17",
         Statement: [
-            ...getBasicLogPolicyStatments(
-                accountResource,
-                functions.map(functionInfo => getFunctionArn(accountResource, functionInfo.name))
-            ),
-            ...functions.map(functionInfo => ({
-                    Effect: "Allow",
-                    Action: functionInfo.permissions,
-                    Resource: getFunctionArn(accountResource, functionInfo.name),
-                }
-            ))
+            ...createDefaultLambdaPolicy({
+                region: region,
+                accountId: accountId,
+                functionNames,
+            }),
+            ...extraPolicyStatements
         ]
-    });
+    };
 
-    let numbering = ''
+    console.log('');
+    console.log(chalk.yellow.bold(`Policy: ${path}${policyName}`));
+    console.log(chalk.white(`checking existing policy...`));
 
-    while (true) {
-        const numberedPolicyName = policyName + numbering;
-        console.log('');
-        console.log(chalk.yellow.bold(`Policy: ${path}${numberedPolicyName}`));
-        console.log(chalk.white(`checking existing policy...`));
+    const currentPolicyStatement = await getExistingPolicyStatement(destinedArn);
 
-        const destinedArn = `arn:aws:iam::${accountId}:policy${path}${numberedPolicyName}`;
-
-        console.log(destinedArn);
-
-        const currentPolicyStatement = await getExistingPolicyStatement(destinedArn);
-
-        if (!currentPolicyStatement) {
-            try {
-                console.log(chalk.white(`creating new policy...`));
-
-                const {Policy: {Arn}} = await iam.createPolicy({
-                    PolicyName: numberedPolicyName,
-                    Path: path,
-                    PolicyDocument: JSON.stringify(policyDocumentObject)
-                }).promise();
-                return Arn
-            } catch (e) {
-                if (e.code !== 'EntityAlreadyExists') break
-                numbering = +(numbering + 1)
-                console.log(chalk.white(`policy with the name exists. trying to another name(${numbering})...`));
-                continue
-            }
-        }
-
-        console.log(chalk.white(`a policy is already exist,`));
-        if (jsonEquals(policyDocumentObject.Statement, currentPolicyStatement)) {
-            console.log(chalk.white(`and does not need to be updated.`));
-        } else {
-            console.log(chalk.white(`creating new version....`));
-            await pushNewPolicyVersion(destinedArn, JSON.stringify(policyDocumentObject))
-        }
-
-        return destinedArn
+    if (!currentPolicyStatement) {
+        console.log(chalk.white(`creating new policy...`));
+        const {Policy: {Arn}} = await iam.createPolicy({
+            PolicyName: policyName,
+            Path: path,
+            PolicyDocument: JSON.stringify(policyDocumentObject)
+        }).promise();
+        return Arn
     }
+
+    console.log(chalk.white(`a policy is already exist,`));
+    if (jsonEquals(policyDocumentObject.Statement, currentPolicyStatement)) {
+        console.log(chalk.white(`and does not need to be updated.`));
+    } else {
+        console.log(chalk.white(`creating new version....`));
+        await pushNewPolicyVersion(destinedArn, JSON.stringify(policyDocumentObject))
+    }
+
+    return destinedArn
 };
 
 async function getCurrentRole(roleName) {
@@ -210,23 +192,30 @@ const createOrUpdateLambdaRole = async ({path, roleName, policyArns = []}) => {
     return role.Arn
 };
 
-const deployRole = async () => {
-    const {packageName, region, functions} = config;
-    const path = '/lambdapress-roles/'
+const deployRole = async ({path = '/lambdapress-roles/', functionNames = []}) => {
+    const {region} = config;
+    const {name} = packageJson;
+    const {Account: accountId} = await sts.getCallerIdentity().promise();
+    const policyName = `${camelCase(name)}LambdaExecutionRole`;
+    const roleName = `${name}-role`;
 
-    const policyArn = await createOrUpdatePolicy({
-        region,
+    return createOrUpdateLambdaRole({
         path,
-        functions,
-        accountId: (await sts.getCallerIdentity().promise()).Account,
-        policyName: `${camelCase(packageName)}LambdaExecutionRole`,
+        roleName,
+        policyArns: [
+            await createOrUpdatePolicy({
+                region,
+                accountId,
+                path,
+                policyName,
+                functionNames,
+            })]
     });
-
-    return createOrUpdateLambdaRole({path, roleName: `${packageName}-role`, policyArns: [policyArn]});
 };
 
 if (require.main === module) {
-    deployRole().then(console.log, console.error)
+    const {function: functionNames} = getProcessArgObject();
+    deployRole({functionNames}).then(console.log, console.error)
 } else {
     module.exports = deployRole
 }

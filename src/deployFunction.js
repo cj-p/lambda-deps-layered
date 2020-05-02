@@ -7,8 +7,9 @@ const {zip} = require('zip-a-folder');
 const prettyBytes = require('pretty-bytes');
 const {ncp} = require('ncp');
 const {hashElement} = require('folder-hash');
-const {AWS, packageJsonPath} = require("./awsConfig");
-const {getProcessArgObject} = require('./util')
+const {AWS, config, packageJsonPath} = require("./awsConfig");
+const deployRole = require('./deployRole');
+const deployLayer = require('./deployLayer');
 
 const lambda = new AWS.Lambda();
 
@@ -114,15 +115,27 @@ const deployFunction = async (functionPath, functionName, role, extraConfig = {}
     return result
 };
 
+const deployAllFunctions = async () => {
+    console.log(chalk.green.underline('\nDeploying Roles'));
+    const RoleArn = await deployRole();
+
+    console.log(chalk.green.underline('\nDeploying Layer'));
+    const {LayerVersionArn} = await deployLayer();
+
+    console.log(chalk.green.underline('\nDeploying Functions'));
+    for (const {name, path} of config.functions) {
+        try {
+            await deployFunction(path, name, RoleArn, {
+                Layers: [LayerVersionArn]
+            })
+        } catch (e) {
+            console.error(e)
+        }
+    }
+};
 
 if (require.main === module) {
-    const processArgObject = getProcessArgObject();
-    const {role: roleArn} = processArgObject;
-    const pathArg = process.argv.slice(2).find(arg => !arg.startsWith('-'));
-    const functionPath = path.resolve(pathArg);
-    const functionName = functionPath.match(/[^\/]*$/)[0];
-
-    deployFunction(functionPath, functionName, roleArn, processArgObject).then(console.log, console.error)
+    deployAllFunctions().then(console.log, console.error)
 } else {
-    module.exports = deployFunction
+    module.exports = deployAllFunctions
 }

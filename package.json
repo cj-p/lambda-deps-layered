@@ -1,12 +1,14 @@
 {
-  "name": "lambda-deps-layered",
+  "name": "lambdapress",
   "version": "1.0.0",
-  "description": "Deploy AWS Lambda functions with layered dependencies",
+  "description": "Deploy AWS Lambda functions with layered dependencies and HTTP API Gateway",
   "main": "src/index.js",
+  "types": "src/index.d.ts",
   "bin": {
-    "deployAll": "src/deployAllFunctionsWithLayer.js",
+    "deployRole": "src/deployRole.js",
+    "deployLayer": "src/deployLayer.js",
     "deployFunction": "src/deployFunction.js",
-    "deployLayer": "src/deployLayer.js"
+    "deployGateway": "src/deployGateway.js"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
@@ -33,6 +35,7 @@
     "aws-sdk": "^2.658.0",
     "camelcase": "^6.0.0",
     "chalk": "^4.0.0",
+    "comment-parser": "^0.7.2",
     "dotenv": "^8.2.0",
     "fast-array-diff": "^0.2.0",
     "folder-hash": "^3.3.0",
@@ -42,5 +45,10 @@
     "read-pkg-up": "^7.0.1",
     "write-json": "^3.0.1",
     "zip-a-folder": "0.0.12"
+  },
+  "devDependencies": {
+    "@types/chai": "^4.2.11",
+    "chai": "^4.2.0",
+    "mocha": "^7.1.2"
   }
 }
