@@ -101,7 +101,7 @@ const deployNodeModulesAsLayer = async () => {
         dependencies,
     } = packageJson;
 
-    const layerName = name || `${packageName}_node_modules`;
+    const layerName = packageName || `${packageName}_node_modules`;
     const hash = md5File.sync(packageJsonPath);
     const description = `production dependencies in package '${packageName}' [hash:${hash}]`;
     const packageRootPath = path.resolve(packageJsonPath, '..');
@@ -120,10 +120,7 @@ const deployNodeModulesAsLayer = async () => {
     }
 
     const zipFile = await getZippedLayer(`${layerName}.${hash}`, packageRootPath);
-    const deployedLayer = await deployLayer({layerName, license, description, zipFile});
-    console.log('done.');
-    return deployedLayer
-
+    return await deployLayer({layerName, license, description, zipFile})
 };
 
 if (require.main === module) {

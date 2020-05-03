@@ -1,221 +1,242 @@
 #!/usr/bin/env node
 
-const chalk = require('chalk');
-const {diff} = require('fast-array-diff');
 const camelCase = require('camelcase');
-const {jsonEquals} = require("./util");
-const {AWS, config, packageJson} = require("./awsConfig");
-const iam = new AWS.IAM();
-const sts = new AWS.STS();
+const chalk = require('chalk');
+const fs = require('fs');
+const packageJsonEditor = require('package-json-editor/src')
+const {AWS, config, packageJsonPath} = require('./awsConfig');
+const deployFunction = require('./deployFunction')
 
-const getExistingPolicyStatement = async policyArn => {
+const apigatewayv2 = new AWS.ApiGatewayV2();
+
+const getExistingApi = async ApiId =>{
+    const existingApi = ApiId && await apigatewayv2.getApi({ApiId}).promise();
+    if (existingApi.ProtocolType !== 'HTTP') throw Object.assign(new Error(), {code: 'NotFoundException'})
+    return existingApi
+}
+
+const getExistingApiAndPrintError = async apiId => {
     try {
-        const {Policy: {DefaultVersionId}} = await iam.getPolicy({
-            PolicyArn: policyArn
-        }).promise();
-
-        const {PolicyVersion: {Document}} = await iam.getPolicyVersion({
-            VersionId: DefaultVersionId,
-            PolicyArn: policyArn,
-        }).promise();
-
-        return JSON.parse(decodeURIComponent(Document)).Statement;
+        return getExistingApi(apiId)
     } catch (e) {
-        return null
+        if (e.code === 'NotFoundException') {
+            console.log(chalk.red(
+                'Error getting existing API :\n' +
+                `API with id:${apiId} is not exists.\n\n` +
+                'To create a new API automatically, delete "apiId" field from "package.json" and try again.'
+            ))
+        }
+        throw e
     }
 }
 
-const createDefaultLambdaPolicy = ({region, accountId, functionNames = []}) => [
-    {
-        Effect: "Allow",
-        Action: "logs:CreateLogGroup",
-        Resource: `arn:aws:logs:${region}:${accountId}:*`
-    },
-    {
-        Effect: "Allow",
-        Action: [
-            "logs:CreateLogStream",
-            "logs:PutLogEvents"
-        ],
-        Resource: functionNames.map(functionName =>
-            `arn:aws:logs:${region}:${accountId}:log-group:/aws/lambda/${functionName}:*`
-        )
-    },
-];
+const saveApi = async (name, apiId, corsConfig) => {
+    const existingApi = apiId && await getExistingApiAndPrintError(apiId);
 
-
-const pushNewPolicyVersion = async (policyArn, policyDocument) => {
-    const {Versions: versions} = await iam.listPolicyVersions({PolicyArn: policyArn}).promise();
-    const {length: versionCount, [versionCount - 1]: lastVersion} = versions.map(version => version.VersionId).sort();
-
-    if (versionCount >= 5) {
-        await iam.deletePolicyVersion({
-            PolicyArn: policyArn,
-            VersionId: lastVersion,
+    if (existingApi && existingApi.ApiId) {
+        console.log(chalk.white(`Updating API ${existingApi.Name} (id:${existingApi.ApiId})...`))
+        await apigatewayv2.updateApi({
+            ApiId: existingApi.ApiId,
+            Name: name,
+            ...corsConfig ? {
+                CorsConfiguration: corsConfig,
+            } : {}
         }).promise()
+        return existingApi.ApiId;
     }
 
-    return iam.createPolicyVersion({
-        PolicyArn: policyArn,
-        PolicyDocument: policyDocument,
-        SetAsDefault: true,
+    console.log(chalk.white(`Creating API ${name}...`))
+    const {ApiId} = await apigatewayv2.createApi({
+        Name: name,
+        ProtocolType: 'HTTP',
+        ...corsConfig ? {
+            CorsConfiguration: corsConfig,
+        } : {}
+        // ApiKeySelectionExpression: 'STRING_VALUE',
+        // CredentialsArn: 'STRING_VALUE',
+        // Description: 'STRING_VALUE',
+        // DisableSchemaValidation: true || false,
+        // RouteKey: 'STRING_VALUE',
+        // RouteSelectionExpression: 'STRING_VALUE',
+        // Tags: {
+        //     '<__string>': 'STRING_VALUE',
+        //     /* '<__string>': ... */
+        // },
+        // Target: 'STRING_VALUE',
+        // Version: 'STRING_VALUE'
     }).promise();
+
+    console.log(chalk.white(`Saving apiId: ${ApiId} in "package.json"...`))
+    fs.writeFileSync(
+        packageJsonPath,
+        packageJsonEditor(fs.readFileSync(packageJsonPath, 'utf-8'))
+            .set('aws.apiId', ApiId)
+            .toString())
+    return ApiId
 };
 
-const createOrUpdatePolicy = async ({
-    region,
-    accountId,
+const saveDefaultStage = async (apiId, autoDeploy) => {
+    try {
+        const existingStage = await apigatewayv2.getStage({
+            ApiId: apiId,
+            StageName: '$default'
+        }).promise();
+
+        console.log(chalk.white(`Updating existing '$default' stage...`))
+        await apigatewayv2.updateStage({
+            ApiId: apiId,
+            StageName: '$default',
+            AutoDeploy: autoDeploy,
+        }).promise()
+
+        return existingStage
+    } catch (e) {
+        if (e.code !== 'NotFoundException') throw e
+        console.log(chalk.white(`Creating new '$default' stage...`))
+        return apigatewayv2.createStage({
+            ApiId: apiId,
+            StageName: '$default',
+            AutoDeploy: autoDeploy,
+            // Description: 'my desc',
+            // AccessLogSettings: {
+            //     DestinationArn: 'STRING_VALUE',
+            //     Format: 'STRING_VALUE'
+            // },
+            // ClientCertificateId: 'STRING_VALUE',
+            // DefaultRouteSettings: {
+            //     DataTraceEnabled: true || false,
+            //     DetailedMetricsEnabled: true || false,
+            //     LoggingLevel: ERROR | INFO | OFF,
+            //     ThrottlingBurstLimit: 'NUMBER_VALUE',
+            //     ThrottlingRateLimit: 'NUMBER_VALUE'
+            // },
+            // RouteSettings: {
+            //     '<__string>': {
+            //         DataTraceEnabled: true || false,
+            //         DetailedMetricsEnabled: true || false,
+            //         LoggingLevel: ERROR | INFO | OFF,
+            //         ThrottlingBurstLimit: 'NUMBER_VALUE',
+            //         ThrottlingRateLimit: 'NUMBER_VALUE'
+            //     },
+            //     /* '<__string>': ... */
+            // },
+            // DeploymentId: 'STRING_VALUE',
+            // StageVariables: {
+            //     '<__string>': 'STRING_VALUE',
+            //     /* '<__string>': ... */
+            // },
+            // Tags: {
+            //     '<__string>': 'STRING_VALUE',
+            //     /* '<__string>': ... */
+            // }
+        }).promise();
+    }
+};
+
+const saveRoute = async ({
+    apiId,
+    method,
     path,
-    policyName,
-    extraPolicyStatements = [],
-    functionNames = []
+    integrationId,
+    authorizationType,
+    authorizerId
 }) => {
-    const destinedArn = `arn:aws:iam::${accountId}:policy${path}${policyName}`;
-    const policyDocumentObject = {
-        Version: "2012-10-17",
-        Statement: [
-            ...createDefaultLambdaPolicy({
-                region: region,
-                accountId: accountId,
-                functionNames,
-            }),
-            ...extraPolicyStatements
-        ]
-    };
+    const routeKey = `${method} ${path}`;
+    const target = `integrations/${integrationId}`;
 
-    console.log('');
-    console.log(chalk.yellow.bold(`Policy: ${path}${policyName}`));
-    console.log(chalk.white(`checking existing policy...`));
+    console.log(chalk.white('Checking existing route...'));
+    const {Items: routes} = await apigatewayv2.getRoutes({ApiId: apiId}).promise();
+    const existing = routes.find(route => route.RouteKey === routeKey && route.Target === target)
 
-    const currentPolicyStatement = await getExistingPolicyStatement(destinedArn);
-
-    if (!currentPolicyStatement) {
-        console.log(chalk.white(`creating new policy...`));
-        const {Policy: {Arn}} = await iam.createPolicy({
-            PolicyName: policyName,
-            Path: path,
-            PolicyDocument: JSON.stringify(policyDocumentObject)
-        }).promise();
-        return Arn
-    }
-
-    console.log(chalk.white(`a policy is already exist,`));
-    if (jsonEquals(policyDocumentObject.Statement, currentPolicyStatement)) {
-        console.log(chalk.white(`and does not need to be updated.`));
-    } else {
-        console.log(chalk.white(`creating new version....`));
-        await pushNewPolicyVersion(destinedArn, JSON.stringify(policyDocumentObject))
-    }
-
-    return destinedArn
-};
-
-async function getCurrentRole(roleName) {
-    try {
-        const {Role} = await iam.getRole({
-            RoleName: roleName
-        }).promise();
-        return Role
-    } catch (e) {
-        return null
-    }
-}
-
-const updateRole = async (roleName, assumeRolePolicyDocument, policyArns) => {
-    console.log(chalk.magenta('\tassumeRolePolicy...'));
-    await iam.updateAssumeRolePolicy({
-        RoleName: roleName,
-        PolicyDocument: assumeRolePolicyDocument
-    }).promise();
-
-    const {AttachedPolicies} = await iam.listAttachedRolePolicies({RoleName: roleName}).promise();
-    const attachedPolicyArns = AttachedPolicies.map(value => value.PolicyArn);
-
-    console.log(chalk.magenta('\tattachRolePolicy...'));
-    const {added, removed} = diff(attachedPolicyArns, policyArns);
-
-    const adding = added.map(arn => iam.attachRolePolicy({
-        PolicyArn: arn,
-        RoleName: roleName
-    }).promise());
-
-    const removing = removed.map(arn => iam.detachRolePolicy({
-        PolicyArn: arn,
-        RoleName: roleName
-    }).promise());
-
-    return Promise.all([...adding, ...removing])
-};
-
-const createOrUpdateLambdaRole = async ({path, roleName, policyArns = []}) => {
-    const assumeRolePolicyDocument = JSON.stringify({
-        Version: "2012-10-17",
-        Statement: [{
-            Effect: 'Allow',
-            Principal: {
-                Service: 'lambda.amazonaws.com'
-            },
-            Action: 'sts:AssumeRole'
-        }]
-    });
-
-    console.log('');
-    console.log(chalk.yellow.bold(`Role: ${path}${roleName}`));
-    console.log(chalk.white(`checking existing role...`));
-
-    const currentRole = await getCurrentRole(roleName);
-
-    if (currentRole) {
-        console.log(chalk.white(`a role is already exist.\nupdating:`));
-        await updateRole(roleName, assumeRolePolicyDocument, policyArns);
-        return currentRole.Arn
-    }
-
-    console.log(chalk.white(`creating new role...`));
-    const {Role: role} = await iam.createRole({
-        Path: path,
-        RoleName: roleName,
-        AssumeRolePolicyDocument: assumeRolePolicyDocument
-        //     Tags,
-        //     Description,
-        //     PermissionsBoundary,
-        //     MaxSessionDuration,
-    }).promise();
-
-    for (const PolicyArn of policyArns) {
-        await iam.attachRolePolicy({
-            PolicyArn,
-            RoleName: role.RoleName
+    if (existing) {
+        console.log(chalk.white(`Updating existing route...`));
+        return apigatewayv2.updateRoute({
+            ApiId: apiId,
+            RouteId: existing.RouteId,
+            AuthorizationType: authorizationType,
+            AuthorizerId: authorizerId,
         }).promise()
     }
 
-    return role.Arn
-};
+    console.log(chalk.white('Creating route...'));
 
-const deployRole = async ({path = '/lambdapress-roles/', functionNames = []}) => {
-    const {region} = config;
-    const {name} = packageJson;
-    const {Account: accountId} = await sts.getCallerIdentity().promise();
-    const policyName = `${camelCase(name)}LambdaExecutionRole`;
-    const roleName = `${name}-role`;
-
-    return createOrUpdateLambdaRole({
-        path,
-        roleName,
-        policyArns: [
-            await createOrUpdatePolicy({
-                region,
-                accountId,
-                path,
-                policyName,
-                functionNames,
-            })]
-    });
-};
-
-if (require.main === module) {
-    const {function: functionNames} = getProcessArgObject();
-    deployRole({functionNames}).then(console.log, console.error)
-} else {
-    module.exports = deployRole
+    return apigatewayv2.createRoute({
+        ApiId: apiId,
+        RouteKey: routeKey,
+        Target: target,
+        AuthorizationType: authorizationType,
+        AuthorizerId: authorizerId,
+        // AuthorizationScopes: [
+        //     'STRING_VALUE',
+        //     /* more items */
+        // ],
+    }).promise();
 }
+
+const getIntegrationSaverForApi = async ApiId => {
+    const {Items: existingIntegrations} = await apigatewayv2.getIntegrations({ApiId}).promise();
+
+    return async (ApiId, IntegrationMethod, IntegrationUri) => {
+        console.log(chalk.white('Checking existing Integration...'));
+        const existing = existingIntegrations.find(integration =>
+            integration.IntegrationUri === IntegrationUri &&
+            integration.IntegrationMethod === IntegrationMethod);
+
+        if (existing) {
+            console.log(chalk.white('Integration already exists.'));
+            return existing
+        }
+
+        console.log(chalk.white('Creating Integration...'));
+        return await apigatewayv2.createIntegration({
+            ApiId,
+            IntegrationType: 'AWS_PROXY',
+            IntegrationMethod: IntegrationMethod,
+            IntegrationUri: IntegrationUri,
+            PayloadFormatVersion: '2.0',
+            // ConnectionType: 'INTERNET',
+            // CredentialsArn: null,
+            // TimeoutInMillis: 30000,
+            // TlsConfig: {
+            //     ServerNameToVerify: 'STRING_VALUE'
+            // }
+        }).promise();
+    };
+}
+
+function getDeployedFunctionInfos(deployedFunctions) {
+    const functionIndexes = config.functions.reduce((functionIndexes, {name, ...infos}) => ({
+        ...functionIndexes,
+        [name]: infos
+    }), {});
+
+    return deployedFunctions.map(({FunctionName, FunctionArn}) => ({
+        name: FunctionName,
+        arn: FunctionArn,
+        ...functionIndexes[FunctionName],
+    }));
+}
+
+(async () => {
+    const functionDeployResult = await deployFunction();
+    const functionInfos = getDeployedFunctionInfos(functionDeployResult);
+
+    console.log(chalk.green.underline('\nDeploying Gateways\n'));
+    const apiId = await saveApi(camelCase(config.packageName), config.apiId);
+    await saveDefaultStage(apiId, true);
+
+    const saveIntegration = await getIntegrationSaverForApi(apiId)
+    for (const {arn, route} of functionInfos) {
+        console.log(chalk.yellow.bold(`\n${route.method} ${route.path}`))
+        const {IntegrationId: integrationId} = await saveIntegration(apiId, route.method, arn)
+        const {RouteId} = await saveRoute({
+            apiId: apiId,
+            method: route.method,
+            path: route.path,
+            integrationId: integrationId,
+            // authorizationType: 'JWT',
+            // authorizerId:'',
+        });
+        console.log(RouteId);
+    }
+})()

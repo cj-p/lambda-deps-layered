@@ -100,19 +100,15 @@ const deployFunction = async (functionPath, functionName, role, extraConfig = {}
     const zipSourcePath = path.resolve(buildPath, config.FunctionName);
     clean(zipSourcePath);
 
-    console.log(chalk.white.bold(`\nbuilding function...`));
+    console.log(chalk.white.bold(`building function...`));
     await copy(functionPath, zipSourcePath, {filter: name => !name.endsWith('/lambda.json')});
     const {hash} = await hashElement(zipSourcePath, {algo: 'md5', encoding: 'hex'})
     const zipFile = await zipFunction(zipSourcePath, path.resolve(buildPath, `${config.FunctionName}.${hash}.zip`));
     clean(zipSourcePath);
-    console.log('');
 
-    const result = await getExistingFunction(config.FunctionName)
+    return await getExistingFunction(config.FunctionName)
         ? await updateFunction(config, zipFile)
         : await createFunction(config, zipFile)
-
-    console.log('done.');
-    return result
 };
 
 const deployAllFunctions = async () => {
@@ -123,15 +119,19 @@ const deployAllFunctions = async () => {
     const {LayerVersionArn} = await deployLayer();
 
     console.log(chalk.green.underline('\nDeploying Functions'));
+
+    const functions = [];
     for (const {name, path} of config.functions) {
         try {
-            await deployFunction(path, name, RoleArn, {
+            const functionInfo = await deployFunction(path, name, RoleArn, {
                 Layers: [LayerVersionArn]
-            })
+            });
+            functions.push(functionInfo)
         } catch (e) {
             console.error(e)
         }
     }
+    return functions
 };
 
 if (require.main === module) {

@@ -60,7 +60,7 @@ function getBasicLogPolicyStatments(accountResource, functionResources) {
 
 const getFunctionArn = (accountResource, functionName) => `${accountResource}:log-group:/aws/lambda/${functionName}:*`;
 
-const createOrUpdatePolicy = async ({
+const savePolicy = async ({
     region,
     accountId,
     path,
@@ -140,7 +140,7 @@ async function getCurrentRole(roleName) {
 }
 
 const updateRole = async (roleName, assumeRolePolicyDocument, policyArns) => {
-    console.log(chalk.magenta('\tassumeRolePolicy...'));
+    console.log(chalk.magenta('assumeRolePolicy...'));
     await iam.updateAssumeRolePolicy({
         RoleName: roleName,
         PolicyDocument: assumeRolePolicyDocument
@@ -149,7 +149,7 @@ const updateRole = async (roleName, assumeRolePolicyDocument, policyArns) => {
     const {AttachedPolicies} = await iam.listAttachedRolePolicies({RoleName: roleName}).promise();
     const attachedPolicyArns = AttachedPolicies.map(value => value.PolicyArn);
 
-    console.log(chalk.magenta('\tattachRolePolicy...'));
+    console.log(chalk.magenta('attachRolePolicy...'));
     const {added, removed} = diff(attachedPolicyArns, policyArns);
 
     const adding = added.map(arn => iam.attachRolePolicy({
@@ -165,7 +165,7 @@ const updateRole = async (roleName, assumeRolePolicyDocument, policyArns) => {
     return Promise.all([...adding, ...removing])
 };
 
-const createOrUpdateLambdaRole = async ({path, roleName, policyArns = []}) => {
+const saveLambdaRole = async ({path, roleName, policyArns = []}) => {
     const assumeRolePolicyDocument = JSON.stringify({
         Version: "2012-10-17",
         Statement: [{
@@ -214,7 +214,7 @@ const deployRole = async () => {
     const {packageName, region, functions} = config;
     const path = '/lambdapress-roles/'
 
-    const policyArn = await createOrUpdatePolicy({
+    const policyArn = await savePolicy({
         region,
         path,
         functions,
@@ -222,7 +222,7 @@ const deployRole = async () => {
         policyName: `${camelCase(packageName)}LambdaExecutionRole`,
     });
 
-    return createOrUpdateLambdaRole({path, roleName: `${packageName}-role`, policyArns: [policyArn]});
+    return saveLambdaRole({path, roleName: `${packageName}-role`, policyArns: [policyArn]});
 };
 
 if (require.main === module) {

@@ -54,6 +54,19 @@ describe('createManifest', () => {
             )
         })
 
+        it('get apiId if it is specified package.json', () => {
+            const {apiId} = createManifest(TEST_SOUCE_ROOT_PATH, {
+                aws:{
+                    packageName: "my-env-package-name",
+                    accessKeyId: "MyAccessKeyId",
+                    secretAccessKey: "MySecretAccessKey",
+                    region: "my-region-1",
+                    apiId:'myApiId'
+                }
+            });
+            expect(apiId).to.equal('myApiId')
+        })
+
         it('parse env variables specified package.json', () => {
             process.env["ACCESS_KEY_ID"] = "MyAccessKeyId";
             process.env["SECRET_ACCESS_KEY"] = "MySecretAccessKey";

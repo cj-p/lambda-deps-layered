@@ -106,7 +106,8 @@ const createManifest = (functionsParentPath, packageJson) => {
         ...extract(
             'accessKeyId',
             'secretAccessKey',
-            'region'
+            'region',
+            'apiId',
         )(configuration),
         ...configuration.cors ? {
             cors: mapExtract({
