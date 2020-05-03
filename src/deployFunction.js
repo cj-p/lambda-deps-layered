@@ -11,6 +11,27 @@ const {AWS, config, packageJsonPath} = require("./awsConfig");
 const deployRole = require('./deployRole');
 const deployLayer = require('./deployLayer');
 
+const DEFAULT_CONFIG = {
+    Handler: "index.handler",
+    MemorySize: 256,
+    Runtime: "nodejs12.x",
+    Timeout: 15,
+    // Description: "lambda function",
+    // Environment: {
+    //     Variables: {
+    //         "BUCKET": "my-bucket-1xpuxmplzrlbh",
+    //         "PREFIX": "inbound"
+    //     }
+    // },
+    // KMSKeyArn: "arn:aws:kms:us-west-2:123456789012:key/b0844d6c-xmpl-4463-97a4-d49f50839966",
+    // Tags: {
+    //     "DEPARTMENT": "Assets"
+    // },
+    // TracingConfig: {
+    //     Mode: "Active"
+    // }
+};
+
 const lambda = new AWS.Lambda();
 
 const getExistingFunction = async FunctionName => {
@@ -40,36 +61,15 @@ const updateFunction = async (config, zipFile) => {
     return await lambda.updateFunctionConfiguration(config).promise()
 };
 
-const createFunction = async (config, zipFile) => {
+const createFunction = (config, zipFile) => {
     console.log(chalk.white.bold('creating new function...'));
-    await lambda.createFunction({
+    return lambda.createFunction({
         ...config,
         Publish: true,
         Code: {
             ZipFile: zipFile
         },
     }).promise()
-};
-
-const DEFAULT_CONFIG = {
-    Handler: "index.handler",
-    MemorySize: 256,
-    Runtime: "nodejs12.x",
-    Timeout: 15,
-    // Description: "lambda function",
-    // Environment: {
-    //     Variables: {
-    //         "BUCKET": "my-bucket-1xpuxmplzrlbh",
-    //         "PREFIX": "inbound"
-    //     }
-    // },
-    // KMSKeyArn: "arn:aws:kms:us-west-2:123456789012:key/b0844d6c-xmpl-4463-97a4-d49f50839966",
-    // Tags: {
-    //     "DEPARTMENT": "Assets"
-    // },
-    // TracingConfig: {
-    //     Mode: "Active"
-    // }
 };
 
 const copy = (source, destination, options = {}) => new Promise((resolve, reject) => {
@@ -112,20 +112,18 @@ const deployFunction = async (functionPath, functionName, role, extraConfig = {}
 };
 
 const deployAllFunctions = async () => {
-    console.log(chalk.green.underline('\nDeploying Roles'));
+    console.log(chalk.green.underline('\n\n●  Deploying Roles'));
     const RoleArn = await deployRole();
 
-    console.log(chalk.green.underline('\nDeploying Layer'));
+    console.log(chalk.green.underline('\n\n●  Deploying Layer'));
     const {LayerVersionArn} = await deployLayer();
 
-    console.log(chalk.green.underline('\nDeploying Functions'));
+    console.log(chalk.green.underline('\n\n●  Deploying Functions'));
 
     const functions = [];
     for (const {name, path} of config.functions) {
         try {
-            const functionInfo = await deployFunction(path, name, RoleArn, {
-                Layers: [LayerVersionArn]
-            });
+            const functionInfo = await deployFunction(path, name, RoleArn, {Layers: [LayerVersionArn]});
             functions.push(functionInfo)
         } catch (e) {
             console.error(e)
