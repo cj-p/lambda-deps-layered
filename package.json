@@ -32,7 +32,7 @@
   },
   "homepage": "https://github.com/cj-p/lambda-deps-layered#readme",
   "dependencies": {
-    "aws-sdk": "^2.658.0",
+    "aws-sdk": "^2.814.0",
     "camelcase": "^6.0.0",
     "chalk": "^4.0.0",
     "comment-parser": "^0.7.2",
